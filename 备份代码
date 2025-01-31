@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width">
+    <style type="text/css">
+        body, html, #container {
+            width: 100%;
+            height: 100%;
+            margin: 0px;
+        }
+        #addressForm {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+        }
+    </style>
+    <title>地址搜索</title>
+</head>
+<body>
+    <div id="addressForm">
+        <input type="text" id="addressInput" placeholder="请输入地址"/>
+        <button onclick="searchAddress()">搜索</button>
+    </div>
+    <div id="container" tabindex="0"></div>
+
+    <!-- 加载高德地图API -->
+    <script src="https://webapi.amap.com/maps?v=1.4.15&key=d0dba3c115e1f259143aee8eeb6e188b"></script>
+    <script type="text/javascript">
+        var map = new AMap.Map('container', {
+            resizeEnable: true,
+            center: [114.057939,22.543527],
+            zoom: 11
+        });
+
+        // 添加工具栏插件
+        AMap.plugin('AMap.ToolBar', function() {
+            var toolbar = new AMap.ToolBar();
+            map.addControl(toolbar);
+        });
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    // Does this cookie string begin with the name we want?
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        function searchAddress() {
+            var address = document.getElementById('addressInput').value;
+            if (address) {
+                fetch('/get_location/', {  // 注意这里的斜杠
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')  // 添加CSRF令牌
+                    },
+                    body: JSON.stringify({address: address})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.location) {
+                        var lnglat = data.location.split(',');
+                        map.setCenter([parseFloat(lnglat[0]), parseFloat(lnglat[1])]);
+                        addMarker([parseFloat(lnglat[0]), parseFloat(lnglat[1])]);
+                    } else {
+                        alert('无法找到该地址');
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+            } else {
+                alert('请输入地址');
+            }
+        }
+
+        function addMarker(lnglat) {
+            var marker = new AMap.Marker({
+                position: new AMap.LngLat(lnglat[0], lnglat[1]),
+                title: '搜索位置'
+            });
+            map.add(marker);
+        }
+    </script>
+</body>
+</html>
+
+
+
+
+######################views:
+# TFAFapp/views.py
+
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import requests
+import json
+from .traffic_status import query_traffic_status_road
+from django.conf import settings
+
+# 保留原有的index视图
+def index(request):
+    return render(request, 'index.html')
+
+@csrf_exempt
+def get_location(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            address = data.get('address')
+            if not address:
+                return JsonResponse({'error': '缺少地址参数'}, status=400)
+
+            location = get_location_from_address(address, settings.AMAP_API_KEY)  # 使用API Key
+            if location:
+                return JsonResponse({'location': location})
+            else:
+                return JsonResponse({'error': '未找到对应位置'}, status=404)
+
+        except json.JSONDecodeError:
+            return JsonResponse({'error': '无效的JSON格式'}, status=400)
+        except Exception as e:
+            return JsonResponse({'error': f"处理请求时出错: {str(e)}"}, status=500)
+
+    return JsonResponse({'error': '无效请求方法'}, status=405)
+
+def get_location_from_address(address, api_key):
+    geocode_url = 'https://restapi.amap.com/v3/geocode/geo'
+    params = {
+        'address': address,
+        'key': api_key,
+        'output': 'json',
+    }
+
+    try:
+        response = requests.get(geocode_url, params=params)
+        response.raise_for_status()
+
+        data = response.json()
+        print("完整响应数据:", data)  # 调试信息
+
+        if data['status'] == '1' and data.get('infocode') == '10000':
+            geo_codes = data.get('geocodes', [])
+            if geo_codes:
+                location = geo_codes[0].get('location')
+                print(f"地址: {address} 对应的经纬度是: {location}")  # 调试信息
+                return location
+            else:
+                print("未找到对应位置")  # 调试信息
+        else:
+            print(
+                f"API响应异常，状态: {data.get('status')}, 错误信息: {data.get('info')}, infocode: {data.get('infocode')}")
+    except requests.exceptions.RequestException as e:
+        print(f"网络请求异常: {e}")  # 调试信息
+
+    return None
+
+
+#######################api数据获取：
+import requests
+import pandas as pd
+import time
+from datetime import datetime
+
+# 参数设置
+RequestURL = 'https://opendata.sz.gov.cn/api/29200_00403590/1/service.xhtml'   # 输入项目地址
+appKey = '88a6e8a1c4164d64a7b2bbf91c09408d'  # API密钥
+header = {'User-Agent': 'Custom'}  # 设置请求头
+FileName = 'dataset.csv'  # 输出文件名
+
+# 用户输入页码和每页记录数
+try:
+    start_page = int(input("请输入开始的页码（例如1）："))
+    end_page = int(input("请输入结束的页码："))
+    rows_per_page = int(input("请输入每页返回的记录数（例如5000）："))
+except ValueError:
+    print("输入无效，请输入整数。")
+    exit()
+
+# 检查页码范围是否合理
+if start_page > end_page:
+    print("开始页码不能大于结束页码。")
+    exit()
+
+# 测试API请求，检查返回状态码是否为200
+test_url = f"{RequestURL}?appKey={appKey}&page={start_page}&rows=1"
+response = requests.get(test_url, headers=header)
+if response.status_code != 200:
+    print('API请求失败，状态码：', response.status_code)
+    exit()
+
+# 初始化数据列表
+pd_data = []
+total_records = 0  # 用于记录已获取的总记录数
+
+for page_num in range(start_page, end_page + 1):
+    # 计算当前页码对应的URL参数
+    page_params = f'?appKey={appKey}&page={page_num}&rows={rows_per_page}'
+    try:
+        # 发送请求并获取响应内容
+        response = requests.get(RequestURL + page_params, headers=header)
+        response.raise_for_status()  # 检查请求是否成功
+        data = response.json()
+
+        # 检查是否有数据返回
+        if 'data' not in data or not data['data']:
+            print(f"第{page_num}页没有数据，可能是最后一页。")
+            break
+
+        # 获取当前页的数据
+        records = data['data']
+        total_records += len(records)
+
+        # 将每条数据转换为DataFrame，并添加到pd_data列表中
+        for row in records:
+            # 转换TIME字段为日期时间格式
+            row['TIME'] = datetime.fromtimestamp(row['TIME'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+            pd_data.append(pd.DataFrame.from_dict(row, orient='index').T)
+
+        print(f'获取第{page_num}页数据，共{len(records)}条记录。累计获取：{total_records}条记录。')
+        time.sleep(0.5)  # 防止请求过快被限制
+
+    except requests.exceptions.HTTPError as http_err:
+        print(f'请求第{page_num}页数据失败，HTTP错误：{http_err}')
+        break
+    except Exception as e:
+        print(f'请求第{page_num}页数据失败，原因：{e}')
+        break
+
+# 将所有DataFrame合并为一个DataFrame并保存为CSV文件
+if pd_data:
+    pd.concat(pd_data, ignore_index=True).to_csv(FileName, index=False)
+    print(f'数据已成功保存为 {FileName}')
+else:
+    print('未获取到任何数据，请检查接口或参数。')
+
+
+
+
