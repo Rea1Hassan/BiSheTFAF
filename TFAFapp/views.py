@@ -6,6 +6,13 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import json
 from django.conf import settings
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+import json
+import requests
+from shapely.geometry import LineString, box
+import geopandas as gpd
+import math
 
 # 保留原有的index视图
 def index(request):
@@ -112,5 +119,81 @@ def query_traffic_status(request):
     return JsonResponse({'error': '无效请求方法'}, status=405)
 
 
+################矩形交通态势##
+# 在views.py中添加如下代码
+from django.http import JsonResponse
+import requests
+from django.views.decorators.csrf import csrf_exempt
+import json
+import math
+
+EARTH_RADIUS_KM = 6371
+
+
+def calculate_rect_bounds(center, diagonal_km):
+    half_diagonal_km = diagonal_km / 2
+    lat_change = (half_diagonal_km / EARTH_RADIUS_KM) * (180 / math.pi)
+    lng_change = lat_change / math.cos(math.radians(center[1]))
+
+    south_west = [center[0] - lng_change, center[1] - lat_change]
+    north_east = [center[0] + lng_change, center[1] + lat_change]
+
+    return f"{south_west[0]:.6f},{south_west[1]:.6f};{north_east[0]:.6f},{north_east[1]:.6f}"
+
+
+def get_geocode(address):
+    BASE_URL = 'https://restapi.amap.com/v3/geocode/geo'
+    params = {
+        'address': address,
+        'key': 'eb132e1d7f0110a0ce0a210459251fce'
+    }
+    res = requests.get(BASE_URL, params=params).json()
+    if res['status'] == '1' and len(res['geocodes']) > 0:
+        location = res['geocodes'][0]['location'].split(',')
+        return float(location[0]), float(location[1])
+    else:
+        error_info = res.get('info', 'Unknown error')
+        infocode = res.get('infocode', 'No infocode')
+        print(f"Geocode Error: {error_info}, infocode: {infocode}")
+        return None
+
+
+def get_status_data(sub_rectangle):
+    data = {'name': [], 'status': [], 'geometry': []}
+    BASE_URL = ('https://restapi.amap.com/v3/traffic/status/rectangle?rectangle={}'
+                '&output=json&extensions=all&key=eb132e1d7f0110a0ce0a210459251fce')
+    res = requests.get(BASE_URL.format(sub_rectangle)).json()
+    if res['status'] == '1' and 'roads' in res['trafficinfo']:
+        for road in res['trafficinfo']['roads']:
+            polylines = [(float(y[0]), float(y[1])) for y in
+                         [x.split(',') for x in road['polyline'].split(';')]]
+            if len(polylines) > 1:
+                data['geometry'].append(polylines)
+                data['name'].append(road['name'])
+                data['status'].append(road['status'])
+    else:
+        error_info = res.get('info', 'Unknown error')
+        infocode = res.get('infocode', 'No infocode')
+        print(f"Error: {error_info}, infocode: {infocode}")
+    return data
+
+
+@csrf_exempt
+def calculate_rect_bounds_and_query(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        address = data.get('address')
+        diagonal_distance = float(data.get('diagonal_distance'))
+
+        center_point = get_geocode(address)
+        if center_point is None:
+            return JsonResponse({"error": "无法获取有效的经纬度坐标，请检查输入的地址是否正确。"}, status=400)
+
+        rectangle_str = calculate_rect_bounds(center=center_point, diagonal_km=diagonal_distance)
+        traffic_data = get_status_data(sub_rectangle=rectangle_str)
+
+        return JsonResponse({"status": "success", "data": traffic_data})
+    else:
+        return JsonResponse({"error": "只接受POST请求"}, status=405)
 
 

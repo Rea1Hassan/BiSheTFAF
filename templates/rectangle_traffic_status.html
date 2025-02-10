@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>智能交通态势查询系统</title>
+    <style>
+        /*20250207新增*/
+        /*新增布局样式*/
+        .page-container {
+            display: flex;
+            height: 100vh;
+            padding: 20px;
+            gap: 20px;
+            background: #f0f2f5;
+        }
+
+        /* 左侧控制面板容器 */
+        .control-panel {
+            width: 400px;
+            min-width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* 右侧地图容器 */
+        #mapContainer {
+            flex: 1;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            background: white;
+        }
+
+        /* 调整原有组件定位为相对布局 */
+        .form-container, 
+        .stats-panel {
+            position: relative;
+            top: auto;
+            left: auto;
+            right: auto;
+            bottom: auto;
+            width: 100%;
+        }
+
+        /* 新闻面板定位调整 */
+        .news-panel {
+            position: fixed;
+            left: 420px;
+            right: 20px;
+            bottom: 20px;
+            transform: none;
+            width: auto;
+        }
+
+        @media (max-width: 1200px) {
+            .page-container {
+                flex-direction: column;
+                height: auto;
+            }
+
+            .control-panel {
+                width: 100%;
+                height: auto;
+            }
+
+            #mapContainer {
+                height: 60vh;
+            }
+
+            .news-panel {
+                position: relative;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                width: 100%;
+                margin-top: 20px;
+            }
+        }
+        
+        .stats-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            width: 280px;
+            backdrop-filter: blur(10px);
+        }
+
+        .stats-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.8rem;
+            padding: 0.8rem;
+            border-radius: 8px;
+        }
+
+        .stats-label {
+            font-weight: 500;
+            color: #444;
+        }
+
+        .stats-value {
+            font-weight: 600;
+        }
+
+        .congestion-3 { background: rgba(255, 0, 0, 0.08); color: #dc3545; }
+        .congestion-2 { background: rgba(255, 165, 0, 0.08); color: #fd7e14; }
+        .congestion-1 { background: rgba(0, 128, 0, 0.08); color: #28a745; }
+        .congestion-0 { background: rgba(128, 128, 128, 0.08); color: #6c757d; }
+
+        /* 新闻板块样式 */
+        .news-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            width: 80%;
+            max-width: 800px;
+            backdrop-filter: blur(10px);
+        }
+
+        .news-item {
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+        }
+
+        .news-item:last-child {
+            border-bottom: none;
+        }
+
+        .news-tag {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .news-content {
+            flex: 1;
+        }
+
+        .tag-congestion { background: #ffe0e0; color: #dc3545; }
+        .tag-accident { background: #fff3cd; color: #856404; }
+        .tag-construction { background: #d4edda; color: #155724; }
+
+        @media (max-width: 768px) {
+            .stats-panel {
+                width: calc(100% - 40px);
+                left: 20px;
+                right: 20px;
+                top: auto;
+                bottom: 200px;
+            }
+
+            .news-panel {
+                width: calc(100% - 40px);
+                bottom: 20px;
+            }
+        }
+        /* 基础重置和字体 */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+
+        /* 主容器布局 */
+        #container {
+            height: 100vh;
+            position: relative;
+        }
+
+       /* 表单样式优化 */
+.form-container {
+    position: relative; /* 确保子元素不会悬浮 */
+    background: rgba(255, 255, 255, 0.95);
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s ease;
+}
+
+.form-header {
+    margin-bottom: 1.5rem;
+    color: #1a1a1a;
+}
+
+.form-header h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.form-header p {
+    color: #666;
+    font-size: 0.9rem;
+}
+
+        .input-group {
+            margin-bottom: 1.2rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #444;
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        input[type="text"], 
+        input[type="number"] {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: all 0.2s ease;
+        }
+
+        input:focus {
+            border-color: #007BFF;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.2);
+            outline: none;
+        }
+
+        button {
+            width: 100%;
+            padding: 1rem;
+            background: linear-gradient(135deg, #007BFF, #0056b3);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        /* 数据展示优化 */
+        .status-container {
+            margin-top: 1.5rem;
+        }
+
+        .traffic-data {
+            background: white;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            color: #333;
+        }
+
+        /* 加载和错误提示 */
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            color: #007BFF;
+            margin-top: 1rem;
+        }
+
+        .loading::after {
+            content: "";
+            width: 1.2rem;
+            height: 1.2rem;
+            border: 3px solid #e0e0e0;
+            border-top-color: #007BFF;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .error-message {
+            padding: 1rem;
+            background: #ffe3e3;
+            color: #dc3545;
+            border-radius: 8px;
+            margin-top: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .form-container {
+                width: calc(100% - 40px);
+                left: 20px;
+                right: 20px;
+                top: 10px;
+            }
+
+            input, button {
+                padding: 0.7rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <!-- 左侧控制面板 -->
+        <div class="control-panel">
+            <div id="trafficStatusForm" class="form-container">
+        <div class="form-header">
+            <h1>交通态势智能查询</h1>
+            <p>输入地址和对角线距离，获取实时交通态势分析</p>
+        </div>
+            </div>
+
+        <div class="input-group">
+            <label for="address">查询地址</label>
+            <input type="text" 
+                   id="address" 
+                   placeholder="例如：北京市朝阳区建国门外大街1号"
+                   required>
+        </div>
+                
+
+        <div class="input-group">
+            <label for="diagonalDistance">覆盖范围（公里）</label>
+            <input type="number" 
+                   id="diagonalDistance" 
+                   min="0.1" 
+                   step="0.1"
+                   placeholder="输入对角线距离"
+                   required>
+        </div>
+
+        <button onclick="queryTrafficStatus()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            立即查询
+        </button>
+
+        <div class="status-container">
+            <div id="loading" class="loading">数据加载中...</div>
+            <div id="errorMessage" class="error-message"></div>
+            <pre id="trafficData" class="traffic-data"></pre>
+        </div>
+    </div>
+    
+    <div class="stats-panel">
+        <h3 style="margin-bottom: 1rem; color: #1a1a1a;">实时路况统计</h3>
+        <div class="stats-item congestion-3">
+            <span class="stats-label">⛔拥堵路段</span>
+            <span class="stats-value" id="congestion-count">0条</span>
+        </div>
+        <div class="stats-item congestion-2">
+            <span class="stats-label">🚧缓行路段</span>
+            <span class="stats-value" id="slow-count">0条</span>
+        </div>
+        <div class="stats-item congestion-1">
+            <span class="stats-label">✅畅通路段</span>
+            <span class="stats-value" id="smooth-count">0条</span>
+        </div>
+        <div class="stats-item congestion-0">
+            <span class="stats-label">❓未知路况</span>
+            <span class="stats-value" id="unknown-count">0条</span>
+        </div>
+    </div>        
+    
+    <!-- 右侧地图区域 -->
+        <div id="mapContainer"></div>  
+        
+    <div class="news-panel">
+        <h3 style="margin-bottom: 1rem; color: #1a1a1a;">实时交通快讯</h3>
+        <div id="news-container">
+            <!-- 新闻内容由JavaScript动态生成 -->
+        </div>
+    </div>
+    </div>
+    
+    <div id="container"></div>
+
+    <!-- 高德地图API -->
+    <script src="https://webapi.amap.com/maps?v=1.4.15&key=d0dba3c115e1f259143aee8eeb6e188b&plugin=AMap.MapType"></script>
+    <!-- 原始JavaScript逻辑保持不变 -->
+    </script>
+    <script type="text/javascript">
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        const map = new AMap.Map("mapContainer", {
+            zoom: 11,
+            mapStyle: 'amap://styles/darkblue',
+            center: [114.057939, 22.543527]
+        });
+
+        AMap.plugin(['AMap.ToolBar'], function() {
+            map.addControl(new AMap.ToolBar());
+        });
+
+        async function queryTrafficStatus() {
+    const address = document.getElementById('address').value.trim();
+    const diagonalDistance = document.getElementById('diagonalDistance').value;
+
+    if (!address || !diagonalDistance) {
+        alert('请填写完整的参数：地址和对角线距离');
+        return;
+    }
+
+    const loadingElement = document.getElementById('loading');
+    const errorMessageElement = document.getElementById('errorMessage');
+    const trafficDataElement = document.getElementById('trafficData');
+
+    loadingElement.style.display = 'block';
+    errorMessageElement.style.display = 'none';
+    trafficDataElement.style.display = 'none';
+
+    try {
+        // 调用后端接口获取地址的经纬度
+        const locationResponse = await fetch('/get_location/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ address })
+        });
+
+        if (!locationResponse.ok) {
+            throw new Error('无法获取地址的经纬度');
+        }
+
+        const locationData = await locationResponse.json();
+        if (!locationData.location) {
+            throw new Error(locationData.error || '无法找到该地址');
+        }
+
+        // 解析经纬度
+        const lnglat = locationData.location.split(',').map(Number);
+
+        // 将地图中心点移动到该地址
+        map.setCenter(lnglat);
+
+        // 发起交通态势查询请求
+        const trafficResponse = await fetch('/calculate_rect_bounds_and_query/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ address, diagonal_distance: diagonalDistance })
+        });
+
+        if (!trafficResponse.ok) {
+            throw new Error('网络响应失败');
+        }
+
+        const trafficData = await trafficResponse.json();
+
+        if (trafficData.error) {
+            throw new Error(trafficData.error);
+        } else {
+            // 更新以显示交通数据
+            trafficDataElement.textContent = JSON.stringify(trafficData.data, null, 2);
+            trafficDataElement.style.display = 'block';
+
+            // 显示交通态势在地图上
+            displayTrafficOnMap(trafficData.data);
+        }
+    } catch (error) {
+        errorMessageElement.textContent = error.message;
+        errorMessageElement.style.display = 'block';
+    } finally {
+        loadingElement.style.display = 'none';
+    }
+}
+
+        function displayTrafficOnMap(trafficData) {
+    // 清除之前的Polyline
+    map.remove(map.getAllOverlays('polyline'));
+
+    // 定义颜色和粗细
+    const styles = {
+        '3': {color: 'red', weight: 8},    // 拥堵：最粗
+        '2': {color: 'orange', weight: 6}, // 缓慢：次之
+        '1': {color: 'green', weight: 4},  // 畅通：更细
+        '0': {color: 'grey', weight: 2}    // 未知：最细
+    };
+
+    trafficData.name.forEach((roadName, index) => {
+        if (trafficData.geometry[index] && trafficData.status[index] in styles) {
+            const polyline = new AMap.Polyline({
+                path: trafficData.geometry[index].map(point => [point[0], point[1]]),
+                strokeColor: styles[trafficData.status[index]].color,
+                strokeWeight: styles[trafficData.status[index]].weight,
+                strokeOpacity: 0.8,
+                zIndex: 50
+            });
+            map.add(polyline);
+        }
+    });
+    
+    const counts = {3:0, 2:0, 1:0, 0:0};
+    trafficData.status.forEach(s => counts[s]++);
+    
+    document.getElementById('congestion-count').textContent = `${counts[3]}条`;
+    document.getElementById('slow-count').textContent = `${counts[2]}条`;
+    document.getElementById('smooth-count').textContent = `${counts[1]}条`;
+    document.getElementById('unknown-count').textContent = `${counts[0]}条`;
+}
+
+    // 生成虚构新闻内容
+        const newsData = [
+            {
+                tag: 'congestion',
+                title: '早高峰提示',
+                content: '建国路东向西方向车流量较大，建议提前绕行',
+                time: '07:30'
+            },
+            {
+                tag: 'construction',
+                title: '道路施工通知',
+                content: '朝阳北路（东四环至青年路段）夜间施工，23:00-05:00封闭',
+                time: '昨日'
+            },
+            {
+                tag: 'accident',
+                title: '事故提醒',
+                content: '北五环上清桥东侧发生交通事故，后方车辆注意避让',
+                time: '09:15'
+            }
+        ];
+
+        function generateNews() {
+            const container = document.getElementById('news-container');
+            container.innerHTML = newsData.map(item => `
+                <div class="news-item">
+                    <div class="news-tag tag-${item.tag}">${getTagName(item.tag)}</div>
+                    <div class="news-content">
+                        <div style="font-weight: 500; margin-bottom: 0.25rem;">${item.title}</div>
+                        <div style="font-size: 0.9rem; color: #666;">${item.content}</div>
+                    </div>
+                    <div style="font-size: 0.8rem; color: #999;">${item.time}</div>
+                </div>
+            `).join('');
+        }
+
+        function getTagName(tag) {
+            return {
+                congestion: '拥堵提醒',
+                accident: '事故通报',
+                construction: '施工公告'
+            }[tag] || '交通信息';
+        }
+
+        // 初始化新闻
+        generateNews();
+    </script>
+</body>
+</html>
